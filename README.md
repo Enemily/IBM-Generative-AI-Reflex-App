@@ -4,6 +4,8 @@ Learning how to build applications with Reflex <a href="https://reflex.dev/">Ref
 
 ## See it live and in action 📺
 
+![Demo](image.png)
+
 # Startup 🚀
 
 1. Create new environment `conda create -n reflexdev`
