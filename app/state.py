@@ -3,11 +3,11 @@ import os
 from dotenv import load_dotenv
 
 from genai.model import Credentials
-from ibm_watson_machine_learning.foundation_models import Model
-from ibm_watson_machine_learning.metanames import GenTextParamsMetaNames as GenParams
 from typing import Any, List, Mapping, Optional, Dict
 from langchain.chains import RetrievalQA
 from pydantic import BaseModel, Extra
+from genai.extensions.langchain import LangChainInterface
+from genai.schemas import GenerateParams
 try:
     from langchain import PromptTemplate
     from langchain.chains import LLMChain, SimpleSequentialChain
@@ -22,71 +22,27 @@ except ImportError:
 
 ############  GET CREDENTIALS
 load_dotenv()
-api_key = os.getenv("API_KEY", None)
-ibm_cloud_url = os.getenv("IBM_CLOUD_URL", 'https://us-south.ml.cloud.ibm.com')
-project_id = os.getenv("PROJECT_ID", None)
-if api_key is None or ibm_cloud_url is None or project_id is None:
-    print("Ensure you copied the .env file that you created earlier into the same directory as this notebook")
-else:
-    creds = {
-        "url": ibm_cloud_url,
-        "apikey": api_key 
-    }
+api_key = os.getenv("GENAI_KEY", None)
+api_url = os.getenv("GENAI_API", None)
+if api_key is None or api_url is None:
+    print("Either api_key or api_url is None. Please make sure your credentials are correct.")
+creds = Credentials(api_key, api_url)
 ############  
 
 
 ############ INSTANTIATE MODEL + LANGCHAIN INTERFACE
-model_params = {
-    GenParams.DECODING_METHOD: "sample",
-    GenParams.MIN_NEW_TOKENS: 50,
-    GenParams.MAX_NEW_TOKENS: 100,
-    GenParams.TEMPERATURE: 0.9,
-    GenParams.TOP_K: 100,
-    GenParams.TOP_P: 0.3,
-    GenParams.REPETITION_PENALTY: 2.0    
-}
 
 # Instantiate a model proxy object to send your requests
-llm = Model(
-    model_id='google/flan-ul2',
-    params=model_params,
-    credentials=creds,
-    project_id='')
-
-class LangChainInterface(LLM, BaseModel):
-    credentials: Optional[Dict] = None
-    model: Optional[str] = None
-    params: Optional[Dict] = None
-    project_id : Optional[str]=None
-
-    class Config:
-        """Configuration for this pydantic object."""
-        extra = Extra.forbid
-
-    @property
-    def _identifying_params(self) -> Mapping[str, Any]:
-        """Get the identifying parameters."""
-        _params = self.params or {}
-        return {
-            **{"model": self.model},
-            **{"params": _params},
-        }
-    
-    @property
-    def _llm_type(self) -> str:
-        """Return type of llm."""
-        return "IBM WATSONX"
-
-    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        """Call the WatsonX model"""
-        params = self.params or {}
-        model = Model(model_id=self.model, params=params, credentials=self.credentials, project_id=self.project_id)
-        text = model.generate_text(prompt)
-        if stop is not None:
-            text = enforce_stop_tokens(text, stop)
-        return text
-
-model = LangChainInterface(model='google/flan-ul2', params=model_params, credentials=creds, project_id = project_id)
+params = GenerateParams(
+    decoding_method="sample",
+    max_new_tokens=100,
+    min_new_tokens=1,
+    stream=False,
+    temperature=0.5,
+    top_k=50,
+    top_p=1,
+).dict()  # Langchain uses dictionaries to pass kwargs - parameters for the model
+llm_model = LangChainInterface(model='meta-llama/llama-2-70b-chat', credentials=creds, params=params)
 ############ 
 
 
@@ -115,7 +71,7 @@ class State(rx.State):
             embedding=HuggingFaceEmbeddings(),
             text_splitter=CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)).from_loaders(loaders)
         
-        chain = RetrievalQA.from_chain_type(llm=model, 
+        chain = RetrievalQA.from_chain_type(llm=llm_model, 
                                     chain_type="stuff", 
                                     retriever=index.vectorstore.as_retriever(), 
                                     input_key="question")
@@ -154,12 +110,10 @@ class State(rx.State):
                 embedding=HuggingFaceEmbeddings(),
                 text_splitter=CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)).from_loaders(loaders)
             
-            chain = RetrievalQA.from_chain_type(llm=model, 
+            chain = RetrievalQA.from_chain_type(llm=llm_model, 
                                         chain_type="stuff", 
                                         retriever=index.vectorstore.as_retriever(), 
                                         input_key="question")
-            
-            
             chainResponse = chain.run(self.question)
             self.chat_history[-1] = (self.question, chainResponse)
             yield
