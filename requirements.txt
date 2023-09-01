@@ -1,2 +1,4 @@
 ibm-generative-ai==0.2.5
 reflex==0.2.6
+ibm-watson-machine-learning==1.0.311
+langchain==0.0.236
